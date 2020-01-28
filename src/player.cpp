@@ -1,7 +1,18 @@
+#include <iostream>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <list>
+
 #include "vc/sdl.hpp"
 #include "vc/gl.hpp"
+#include "ffmpeg.hpp"
 
 #include <SDL2/SDL.h>
+
+extern "C" {
+#include <libavutil/pixdesc.h>
+}
 
 int width = 800;
 int height = 600;
@@ -57,8 +68,76 @@ static void init_quad()
         glVertexAttribPointer(va_position, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0);
 }
 
+struct queue {
+	queue() : is_ok(true) {}
+
+	void push(av::frame &f) {
+		std::lock_guard<std::mutex> l(m);
+
+		filled.push_back(f);
+	}
+	bool get(int64_t pts, av::frame &f) {
+		std::lock_guard<std::mutex> l(m);
+		bool ret = false;
+
+		while (!filled.empty() && filled.front().f->pts <= pts) {
+			f = std::move(filled.front());
+			filled.pop_front();
+
+			ret = true;
+		}
+		return ret;
+	}
+
+	bool operator!() { return !is_ok; }
+	void stop() { is_ok = false; }
+
+	bool is_ok;
+	std::mutex m;
+	std::list<av::frame> filled;
+};
+
+static void read_video(av::input &video, queue &qframe)
+{
+	av::packet p;
+	av::decoder dec = video.get(0);
+	if (!dec)
+		goto out;
+
+	while (video >> p && !!qframe) {
+		if (p.stream_index() != 0)
+			goto out;
+
+		if (!(dec << p))
+			return;
+
+		av::frame f;
+
+		while (dec >> f) {
+			std::cerr << "send a frame pts: " << f.f->pts << " fmt: "
+				  << av_get_pix_fmt_name(AVPixelFormat(f.f->format)) << std::endl;
+
+			qframe.push(f);
+		}
+	}
+out:
+	qframe.stop();
+}
+
 int main(int argc, char* argv[])
 {
+	std::string videoname = "pipe:0";
+	queue qframe;
+
+	if (argc > 1)
+		videoname = argv[1];
+
+	av::input video;
+	if (!video.open(videoname))
+		return -1;
+
+	std::thread read = std::thread(read_video, std::ref(video), std::ref(qframe));
+
 	if (!init_sdl(argv[0], width, height))
 		return -1;
 
@@ -71,7 +150,8 @@ int main(int argc, char* argv[])
 	init_quad();
 
 	bool run = true;
-	while (run) {
+	int64_t pts = 0;
+	while (run && !!qframe) {
 		SDL_Event e;
 
                 while (SDL_PollEvent(&e)) {
@@ -82,8 +162,18 @@ int main(int argc, char* argv[])
                         }
                 }
 
+		av::frame f;
+		if (qframe.get(pts, f)) {
+			std::cerr << "receive a frame pts: " << f.f->pts << " fmt: "
+				  << av_get_pix_fmt_name(AVPixelFormat(f.f->format)) << std::endl;
+
+			pts = f.f->pts + 40;
+		}
+
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		SDL_GL_SwapWindow(SDL_GL_GetCurrentWindow());
 	}
+	qframe.stop();
+	read.join();
 	return 0;
 }

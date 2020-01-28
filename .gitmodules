@@ -1,0 +1,3 @@
+[submodule "subprojects/av-cpp"]
+	path = subprojects/av-cpp
+	url = https://github.com/ccalmels/av-cpp.git

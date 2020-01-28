@@ -106,7 +106,7 @@ static void read_video(av::input &video, queue &qframe)
 
 	while (video >> p && !!qframe) {
 		if (p.stream_index() != 0)
-			goto out;
+			continue;
 
 		if (!(dec << p))
 			return;

@@ -2,7 +2,10 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <list>
+#include <cassert>
+#include <atomic>
 
 #include "vc/sdl.hpp"
 #include "vc/gl.hpp"
@@ -82,13 +85,18 @@ static void init_quad()
 }
 
 struct queue {
-	queue() : is_ok(true) {}
+	queue(size_t n = 3) : is_ok(true), size(n) {}
 
 	void push(av::frame &f) {
-		std::lock_guard<std::mutex> l(m);
+		std::unique_lock<std::mutex> l(m);
+
+		while (filled.size() >= size && is_ok)
+			cv.wait(l);
 
 		filled.push_back(f);
+		cv.notify_one();
 	}
+
 	bool get(int64_t pts, av::frame &f) {
 		std::lock_guard<std::mutex> l(m);
 		bool ret = false;
@@ -99,14 +107,37 @@ struct queue {
 
 			ret = true;
 		}
+
+		if (filled.size() < size)
+			cv.notify_one();
 		return ret;
 	}
 
-	bool operator!() { return !is_ok; }
-	void stop() { is_ok = false; }
+	int64_t wait() {
+		std::unique_lock<std::mutex> l(m);
 
-	bool is_ok;
+		while (filled.empty() && is_ok)
+			cv.wait(l);
+
+		if (!filled.empty())
+			return filled.front().f->pts;
+
+		return -1;
+	}
+
+	bool operator!() {
+		return !is_ok;
+	}
+
+	void stop() {
+		is_ok = false;
+		cv.notify_all();
+	}
+
+	std::atomic<bool> is_ok;
+	size_t size;
 	std::mutex m;
+	std::condition_variable cv;
 	std::list<av::frame> filled;
 };
 
@@ -205,10 +236,15 @@ int main(int argc, char* argv[])
 	init_quad();
 
 	texture_yuv tex;
-
 	bool run = true;
-	int64_t pts = 0;
+	AVRational time_base = video.time_base(0);
+	int64_t first_pts = qframe.wait();
+	Uint32 start_tick = SDL_GetTicks();
+	assert(first_pts != -1);
+
 	while (run && !!qframe) {
+		int64_t pts = av_rescale(SDL_GetTicks() - start_tick, time_base.den,
+					 time_base.num * 1000) + first_pts;
 		SDL_Event e;
 
                 while (SDL_PollEvent(&e)) {
@@ -223,8 +259,6 @@ int main(int argc, char* argv[])
 		if (qframe.get(pts, f)) {
 			std::cerr << "receive a frame pts: " << f.f->pts << " fmt: "
 				  << av_get_pix_fmt_name(AVPixelFormat(f.f->format)) << std::endl;
-
-			pts = f.f->pts + 40;
 
 			tex.update(f, 0);
 		}

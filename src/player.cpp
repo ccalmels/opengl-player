@@ -196,12 +196,8 @@ static void read_video(av::input &video, queue &qframe)
 
 		av::frame f;
 
-		while (dec >> f) {
-			std::cerr << "send a frame pts: " << f.f->pts << " fmt: "
-				  << av_get_pix_fmt_name(AVPixelFormat(f.f->format)) << std::endl;
-
+		while (dec >> f)
 			qframe.push(f);
-		}
 	}
 out:
 	qframe.stop();
@@ -256,12 +252,8 @@ int main(int argc, char* argv[])
                 }
 
 		av::frame f;
-		if (qframe.get(pts, f)) {
-			std::cerr << "receive a frame pts: " << f.f->pts << " fmt: "
-				  << av_get_pix_fmt_name(AVPixelFormat(f.f->format)) << std::endl;
-
+		if (qframe.get(pts, f))
 			tex.update(f, 0);
-		}
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		SDL_GL_SwapWindow(SDL_GL_GetCurrentWindow());

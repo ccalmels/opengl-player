@@ -14,8 +14,8 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-int width = 800;
-int height = 600;
+int width = 1920;
+int height = 1080;
 
 static const std::string vertex = R""(
 #version 300 es

@@ -32,15 +32,28 @@ static const std::string vertex = R""(
         }
         )"";
 
-static const std::string fragment = R""(
+static const std::string fragment_yuv = R""(
 #version 300 es
 
         precision highp float;
 
         in vec2 v_uv;
         out vec4 color;
+
+	uniform sampler2D y_tex, u_tex, v_tex;
+
+	const mat3 yuv2rgb = mat3(1.0, 1.0, 1.0,
+				  0.0, -0.39465, 2.03211,
+				  1.13983, -0.5860, 0.0);
         void main() {
-                color = vec4(1., 0., 0., 1.);
+		vec3 yuv, rgb;
+
+		yuv.r = texture(y_tex, v_uv).r;
+		yuv.g = texture(u_tex, v_uv).r - 0.5;
+		yuv.b = texture(v_tex, v_uv).r - 0.5;
+
+		rgb = yuv2rgb * yuv;
+		color = vec4(rgb, 1.0);
         }
         )"";
 
@@ -97,6 +110,45 @@ struct queue {
 	std::list<av::frame> filled;
 };
 
+struct texture_yuv {
+	texture_yuv() { w[0] = 0; h[0] = 0; }
+
+	void update(const av::frame &f, int active) {
+		if (!w[0])
+			return create(f, active);
+
+		for(int i = 0; i < 3; i++) {
+			glActiveTexture(GL_TEXTURE0 + active + i);
+			glBindTexture(GL_TEXTURE_2D, textures[i]);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w[i], h[i], GL_RED,
+					GL_UNSIGNED_BYTE, f.f->data[i]);
+		}
+	}
+
+	void create(const av::frame &f, int active) {
+		w[0] = f.f->width;
+		h[0] = f.f->height;
+
+		w[1] = w[2] = f.f->width * 0.5;
+		h[1] = h[2] = f.f->height * 0.5;
+
+		glGenTextures(3, textures);
+
+		for(int i = 0; i < 3; i++) {
+			glActiveTexture(GL_TEXTURE0 + active + i);
+			glBindTexture(GL_TEXTURE_2D, textures[i]);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w[i], h[i] , 0, GL_RED,
+				     GL_UNSIGNED_BYTE, f.f->data[i]);
+
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		}
+	}
+
+	GLuint textures[3];
+	int w[3], h[3];
+};
+
 static void read_video(av::input &video, queue &qframe)
 {
 	av::packet p;
@@ -141,13 +193,18 @@ int main(int argc, char* argv[])
 	if (!init_sdl(argv[0], width, height))
 		return -1;
 
-	shaders red;
-	if (!red.init(vertex, fragment))
+	shaders yuv;
+	if (!yuv.init(vertex, fragment_yuv))
 		return -1;
 
-	red.use();
+	yuv.use();
+	glUniform1i(yuv.location("y_tex"), 0);
+	glUniform1i(yuv.location("u_tex"), 1);
+	glUniform1i(yuv.location("v_tex"), 2);
 
 	init_quad();
+
+	texture_yuv tex;
 
 	bool run = true;
 	int64_t pts = 0;
@@ -168,6 +225,8 @@ int main(int argc, char* argv[])
 				  << av_get_pix_fmt_name(AVPixelFormat(f.f->format)) << std::endl;
 
 			pts = f.f->pts + 40;
+
+			tex.update(f, 0);
 		}
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

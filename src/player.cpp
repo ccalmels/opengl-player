@@ -100,13 +100,18 @@ struct queue {
 	bool get(int64_t pts, av::frame &f) {
 		std::lock_guard<std::mutex> l(m);
 		bool ret = false;
+		int count = -1;
 
 		while (!filled.empty() && filled.front().f->pts <= pts) {
 			f = std::move(filled.front());
 			filled.pop_front();
 
 			ret = true;
+			count++;
 		}
+
+		if (ret && count)
+			std::cerr << "drop: " << count << " frames" << std::endl;
 
 		if (filled.size() < size)
 			cv.notify_one();

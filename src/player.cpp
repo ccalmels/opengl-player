@@ -197,7 +197,7 @@ static void read_video(av::input &video, queue &qframe)
 			continue;
 
 		if (!(dec << p))
-			return;
+			goto out;
 
 		av::frame f;
 

@@ -185,26 +185,29 @@ struct texture_yuv {
 	int w[3], h[3];
 };
 
-static void read_video(av::input &video, queue &qframe)
+static void decode_video(av::input &video, queue &qframe)
 {
 	av::packet p;
+	av::frame f;
 	av::decoder dec = video.get(0);
 	if (!dec)
-		goto out;
+		return;
 
 	while (video >> p && !!qframe) {
 		if (p.stream_index() != 0)
 			continue;
 
 		if (!(dec << p))
-			goto out;
-
-		av::frame f;
+			return;
 
 		while (dec >> f)
 			qframe.push(f);
 	}
-out:
+}
+
+static void read_video(av::input &video, queue &qframe)
+{
+	decode_video(video, qframe);
 	qframe.stop();
 }
 

@@ -253,6 +253,15 @@ int main(int argc, char* argv[])
 
                 while (SDL_PollEvent(&e)) {
                         switch (e.type) {
+			case SDL_KEYDOWN:
+				switch (e.key.keysym.scancode) {
+				case SDL_SCANCODE_ESCAPE:
+					run = false;
+					break;
+				default:
+					;
+				}
+				break;
                         case SDL_QUIT:
                                 run = false;
                                 break;

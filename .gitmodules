@@ -1,3 +1,6 @@
 [submodule "subprojects/av-cpp"]
 	path = subprojects/av-cpp
 	url = https://github.com/ccalmels/av-cpp.git
+[submodule "subprojects/libvc"]
+	path = subprojects/libvc
+	url = https://github.com/ccalmels/libvc.git

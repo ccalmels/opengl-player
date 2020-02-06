@@ -7,8 +7,8 @@
 #include <cassert>
 #include <atomic>
 
-#include "vc/sdl.hpp"
-#include "vc/gl.hpp"
+#include "sdl.hpp"
+#include "gl.hpp"
 #include "ffmpeg.hpp"
 
 #include <SDL2/SDL.h>

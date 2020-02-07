@@ -17,8 +17,8 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-int width = 1920;
-int height = 1080;
+static int width;
+static int height;
 
 static const std::string vertex = R""(
 #version 300 es
@@ -224,6 +224,11 @@ int main(int argc, char* argv[])
 		return -1;
 
 	std::thread read = std::thread(read_video, std::ref(video), std::ref(qframe));
+	int64_t first_pts = qframe.wait();
+	assert(first_pts != -1);
+
+	width = qframe.filled.front().f->width;
+	height = qframe.filled.front().f->height;
 
 	if (!init_sdl(argv[0], width, height))
 		return -1;
@@ -242,9 +247,7 @@ int main(int argc, char* argv[])
 	texture_yuv tex;
 	bool run = true;
 	AVRational time_base = video.time_base(0);
-	int64_t first_pts = qframe.wait();
 	Uint32 start_tick = SDL_GetTicks();
-	assert(first_pts != -1);
 
 	while (run && !!qframe) {
 		int64_t pts = av_rescale(SDL_GetTicks() - start_tick, time_base.den,

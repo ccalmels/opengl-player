@@ -114,16 +114,13 @@ struct queue {
 		return ret;
 	}
 
-	int64_t wait() {
+	bool wait() {
 		std::unique_lock<std::mutex> l(m);
 
 		while (filled.empty() && is_ok)
 			cv.wait(l);
 
-		if (!filled.empty())
-			return filled.front().f->pts;
-
-		return -1;
+		return !filled.empty();
 	}
 
 	bool operator!() {
@@ -220,9 +217,11 @@ int main(int argc, char* argv[])
 		return -1;
 
 	std::thread read = std::thread(read_video, std::ref(video), std::ref(qframe));
-	int64_t first_pts = qframe.wait();
-	assert(first_pts != -1);
 
+	if (!qframe.wait())
+		return -1;
+
+	int64_t first_pts = qframe.filled.front().f->pts;
 	width = qframe.filled.front().f->width;
 	height = qframe.filled.front().f->height;
 

@@ -13,10 +13,6 @@
 
 #include <SDL2/SDL.h>
 
-extern "C" {
-#include <libavutil/pixdesc.h>
-}
-
 static int width;
 static int height;
 

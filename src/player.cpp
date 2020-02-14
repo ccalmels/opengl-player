@@ -19,32 +19,33 @@ static int height;
 static const std::string vertex = R""(
 #version 300 es
 
-        layout (location = 0) in vec2 va_position;
-        out vec2 v_uv;
+	layout (location = 0) in vec2 va_position;
+	out vec2 v_uv;
 
-        void main() {
-                v_uv = va_position;
-                v_uv.y = -v_uv.y;
-                v_uv = (v_uv + vec2(1.0)) * 0.5;
+	void main() {
+		v_uv = va_position;
+		v_uv.y = -v_uv.y;
+		v_uv = (v_uv + vec2(1.0)) * 0.5;
 
-                gl_Position = vec4(va_position, 0.0, 1.0);
-        }
-        )"";
+		gl_Position = vec4(va_position, 0.0, 1.0);
+	}
+	)"";
 
 static const std::string fragment_yuv = R""(
 #version 300 es
 
-        precision highp float;
+	precision highp float;
 
-        in vec2 v_uv;
-        out vec4 color;
+	in vec2 v_uv;
+	out vec4 color;
 
 	uniform sampler2D y_tex, u_tex, v_tex;
 
 	const mat3 yuv2rgb = mat3(1.0, 1.0, 1.0,
 				  0.0, -0.39465, 2.03211,
 				  1.13983, -0.5860, 0.0);
-        void main() {
+
+	void main() {
 		vec3 yuv, rgb;
 
 		yuv.r = texture(y_tex, v_uv).r;
@@ -60,24 +61,24 @@ static void init_quad()
 {
 	GLuint vao_quad, vbo_quad;
 	glGenVertexArrays(1, &vao_quad);
-        glBindVertexArray(vao_quad);
+	glBindVertexArray(vao_quad);
 
-        glGenBuffers(1, &vbo_quad);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo_quad);
+	glGenBuffers(1, &vbo_quad);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo_quad);
 
-        float vertex_data[] = {
-                1, 1,
-                1, -1,
-                -1, 1,
-                -1, -1,
-        };
+	float vertex_data[] = {
+		1, 1,
+		1, -1,
+		-1, 1,
+		-1, -1,
+	};
 
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_data), vertex_data,
-                     GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_data), vertex_data,
+		     GL_STATIC_DRAW);
 
-        GLuint va_position = 0;
-        glEnableVertexAttribArray(va_position);
-        glVertexAttribPointer(va_position, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0);
+	GLuint va_position = 0;
+	glEnableVertexAttribArray(va_position);
+	glVertexAttribPointer(va_position, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid*)0);
 }
 
 struct queue {
@@ -249,8 +250,8 @@ int main(int argc, char* argv[])
 					 time_base.num * 1000) + first_pts;
 		SDL_Event e;
 
-                while (SDL_PollEvent(&e)) {
-                        switch (e.type) {
+		while (SDL_PollEvent(&e)) {
+			switch (e.type) {
 			case SDL_KEYDOWN:
 				switch (e.key.keysym.scancode) {
 				case SDL_SCANCODE_ESCAPE:
@@ -260,11 +261,11 @@ int main(int argc, char* argv[])
 					;
 				}
 				break;
-                        case SDL_QUIT:
-                                run = false;
-                                break;
-                        }
-                }
+			case SDL_QUIT:
+				run = false;
+				break;
+			}
+		}
 
 		av::frame f;
 		if (qframe.get(pts, f))

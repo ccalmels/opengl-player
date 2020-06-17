@@ -43,7 +43,7 @@ static const std::string fragment_yuv = R""(
 
 	const mat3 yuv2rgb = mat3(1.0, 1.0, 1.0,
 				  0.0, -0.39465, 2.03211,
-				  1.13983, -0.5860, 0.0);
+				  1.13983, -0.58060, 0.0);
 
 	void main() {
 		vec3 yuv, rgb;

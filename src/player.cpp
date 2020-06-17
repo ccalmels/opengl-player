@@ -234,9 +234,9 @@ int main(int argc, char* argv[])
 		return -1;
 
 	yuv.use();
-	glUniform1i(yuv.location("y_tex"), 0);
-	glUniform1i(yuv.location("u_tex"), 1);
-	glUniform1i(yuv.location("v_tex"), 2);
+	yuv.set("y_tex", 0);
+	yuv.set("u_tex", 1);
+	yuv.set("v_tex", 2);
 
 	init_quad();
 

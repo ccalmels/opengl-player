@@ -17,7 +17,7 @@ static int width;
 static int height;
 
 static const std::string vertex = R""(
-#version 300 es
+#version 450
 
 	layout (location = 0) in vec2 va_position;
 	out vec2 v_uv;
@@ -32,7 +32,7 @@ static const std::string vertex = R""(
 	)"";
 
 static const std::string fragment_yuv = R""(
-#version 300 es
+#version 450
 
 	precision highp float;
 
@@ -51,6 +51,31 @@ static const std::string fragment_yuv = R""(
 		yuv.r = texture(y_tex, v_uv).r;
 		yuv.g = texture(u_tex, v_uv).r - 0.5;
 		yuv.b = texture(v_tex, v_uv).r - 0.5;
+
+		rgb = yuv2rgb * yuv;
+		color = vec4(rgb, 1.0);
+        }
+        )"";
+
+static const std::string fragment_nv12 = R""(
+#version 450
+
+	precision highp float;
+
+	in vec2 v_uv;
+	out vec4 color;
+
+	uniform sampler2D y_tex, uv_tex;
+
+	const mat3 yuv2rgb = mat3(1.0, 1.0, 1.0,
+				  0.0, -0.39465, 2.03211,
+				  1.13983, -0.58060, 0.0);
+
+	void main() {
+		vec3 yuv, rgb;
+
+		yuv.r = texture(y_tex, v_uv).r;
+		yuv.gb = texture(uv_tex, v_uv).rg - vec2(0.5);
 
 		rgb = yuv2rgb * yuv;
 		color = vec4(rgb, 1.0);
@@ -140,68 +165,70 @@ struct queue {
 	std::list<av::frame> filled;
 };
 
-struct texture_yuv {
-	texture_yuv() { w[0] = 0; h[0] = 0; }
+struct video_texture {
+	video_texture(AVPixelFormat format, int width, int height) {
+		switch (format) {
+		case AV_PIX_FMT_NV12:
+			planes.emplace_back(GL_RED, width, height);
+			planes.emplace_back(GL_RG, width * 0.5, height * 0.5);
+			break;
+		case AV_PIX_FMT_YUV420P:
+			planes.emplace_back(GL_RED, width, height);
+			planes.emplace_back(GL_RED, width * 0.5, height * 0.5);
+			planes.emplace_back(GL_RED, width * 0.5, height * 0.5);
+			break;
+		default:
+			assert(false);
+		}
+	}
+	~video_texture() {}
 
 	void update(const av::frame &f, int active) {
-		if (!w[0])
-			return create(f, active);
+		for (size_t i = 0; i < planes.size(); i++)
+			planes[i].update(f.f->data[i]);
 
-		for(int i = 0; i < 3; i++) {
-			glActiveTexture(GL_TEXTURE0 + active + i);
-			glBindTexture(GL_TEXTURE_2D, textures[i]);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w[i], h[i], GL_RED,
-					GL_UNSIGNED_BYTE, f.f->data[i]);
-		}
+		for (size_t i = 0; i < planes.size(); i++)
+			planes[i].active(active + i);
 	}
+	std::vector<gl::texture> planes;
 
-	void create(const av::frame &f, int active) {
-		w[0] = f.f->width;
-		h[0] = f.f->height;
-
-		w[1] = w[2] = f.f->width * 0.5;
-		h[1] = h[2] = f.f->height * 0.5;
-
-		glGenTextures(3, textures);
-
-		for(int i = 0; i < 3; i++) {
-			glActiveTexture(GL_TEXTURE0 + active + i);
-			glBindTexture(GL_TEXTURE_2D, textures[i]);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w[i], h[i] , 0, GL_RED,
-				     GL_UNSIGNED_BYTE, f.f->data[i]);
-
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		}
+	static video_texture *create_from_frame(const av::frame &f) {
+		return new video_texture((AVPixelFormat)f.f->format, f.f->width, f.f->height);
 	}
-
-	GLuint textures[3];
-	int w[3], h[3];
 };
 
-static void decode_video(av::input &video, queue &qframe)
+static bool decode_video(av::input &video, queue &qframe,
+			 const std::string &hwaccel = "")
 {
 	av::packet p;
 	av::frame f;
-	av::decoder dec = video.get(0);
+	av::decoder dec;
+	int id;
+
+	id = video.get_video_index(0);
+
+	dec = video.get(av::hw_device(hwaccel), id);
 	if (!dec)
-		return;
+		return false;
 
 	while (video >> p && !!qframe) {
-		if (p.stream_index() != 0)
+		if (p.stream_index() != id)
 			continue;
 
 		if (!(dec << p))
-			return;
+			return false;
 
 		while (dec >> f)
 			qframe.push(f);
 	}
+
+	return true;
 }
 
 static void read_video(av::input &video, queue &qframe)
 {
-	decode_video(video, qframe);
+	if (!decode_video(video, qframe, "vaapi"))
+		decode_video(video, qframe, "cuda");
 	qframe.stop();
 }
 
@@ -219,28 +246,33 @@ int main(int argc, char* argv[])
 
 	std::thread read = std::thread(read_video, std::ref(video), std::ref(qframe));
 
-	if (!qframe.wait())
+	if (!qframe.wait()) {
+		read.join();
 		return -1;
+	}
 
 	int64_t first_pts = qframe.filled.front().f->pts;
 	width = qframe.filled.front().f->width;
 	height = qframe.filled.front().f->height;
 
-	if (!init_sdl(argv[0], width, height))
+	if (!sdl::init(argv[0], width, height))
 		return -1;
+	std::cerr << "SDL: " << sdl::version() << std::endl;
 
-	shaders yuv;
-	if (!yuv.init(vertex, fragment_yuv))
-		return -1;
-
+	gl::program yuv(vertex, fragment_yuv);
 	yuv.use();
 	yuv.set("y_tex", 0);
 	yuv.set("u_tex", 1);
 	yuv.set("v_tex", 2);
 
+	gl::program nv12(vertex, fragment_nv12);
+	nv12.use();
+	nv12.set("y_tex", 0);
+	nv12.set("uv_tex", 1);
+
 	init_quad();
 
-	texture_yuv tex;
+	video_texture *vid = nullptr;
 	bool run = true;
 	AVRational time_base = video.time_base(0);
 	Uint32 start_tick = SDL_GetTicks();
@@ -268,12 +300,26 @@ int main(int argc, char* argv[])
 		}
 
 		av::frame f;
-		if (qframe.get(pts, f))
-			tex.update(f, 0);
+		if (qframe.get(pts, f)) {
+			if (f.is_hardware())
+				f = f.transfer();
+
+			if (!vid) {
+				vid = video_texture::create_from_frame(f);
+
+				if (f.f->format == AV_PIX_FMT_YUV420P)
+					yuv.use();
+				else
+					nv12.use();
+			}
+
+			vid->update(f, 0);
+		}
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		SDL_GL_SwapWindow(SDL_GL_GetCurrentWindow());
 	}
+
 	qframe.stop();
 	read.join();
 	return 0;

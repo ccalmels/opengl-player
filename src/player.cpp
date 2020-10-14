@@ -198,7 +198,7 @@ struct video_texture {
 };
 
 static bool decode_video(av::input &video, queue &qframe,
-			 const std::string &hwaccel = "")
+			 av::hw_device &hw)
 {
 	av::packet p;
 	av::frame f;
@@ -207,7 +207,7 @@ static bool decode_video(av::input &video, queue &qframe,
 
 	id = video.get_video_index(0);
 
-	dec = video.get(av::hw_device(hwaccel), id);
+	dec = video.get(hw, id);
 	if (!dec)
 		return false;
 
@@ -227,8 +227,12 @@ static bool decode_video(av::input &video, queue &qframe,
 
 static void read_video(av::input &video, queue &qframe)
 {
-	if (!decode_video(video, qframe, "vaapi"))
-		decode_video(video, qframe, "cuda");
+	av::hw_device hw("vaapi");
+	if (!hw)
+		hw = av::hw_device("cuda");
+
+	decode_video(video, qframe, hw);
+
 	qframe.stop();
 }
 

@@ -173,6 +173,7 @@ struct video_texture {
 			planes.emplace_back(GL_RG, width * 0.5, height * 0.5);
 			break;
 		case AV_PIX_FMT_YUV420P:
+		case AV_PIX_FMT_YUVJ420P:
 			planes.emplace_back(GL_RED, width, height);
 			planes.emplace_back(GL_RED, width * 0.5, height * 0.5);
 			planes.emplace_back(GL_RED, width * 0.5, height * 0.5);
@@ -311,7 +312,8 @@ int main(int argc, char* argv[])
 			if (!vid) {
 				vid = video_texture::create_from_frame(f);
 
-				if (f.f->format == AV_PIX_FMT_YUV420P)
+				if (f.f->format == AV_PIX_FMT_YUV420P ||
+				    f.f->format == AV_PIX_FMT_YUVJ420P )
 					yuv.use();
 				else
 					nv12.use();

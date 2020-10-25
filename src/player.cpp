@@ -7,11 +7,12 @@
 #include <cassert>
 #include <atomic>
 
-#include "sdl.hpp"
+#include "egl.hpp"
 #include "gl.hpp"
 #include "ffmpeg.hpp"
 
 #include <SDL2/SDL.h>
+#include <EGL/egl.h>
 
 static int width;
 static int height;
@@ -260,9 +261,12 @@ int main(int argc, char* argv[])
 	width = qframe.filled.front().f->width;
 	height = qframe.filled.front().f->height;
 
-	if (!sdl::init(argv[0], width, height))
+	if (!egl::init(argv[0], width, height))
 		return -1;
-	std::cerr << "SDL: " << sdl::version() << std::endl;
+
+	std::cerr << "SDL with egl  : " << width << "x" << height << std::endl;
+	std::cerr << "EGL version   : " << egl::version() << std::endl;
+	std::cerr << "OpenGL version: " << gl::version() << std::endl;
 
 	gl::program yuv(vertex, fragment_yuv);
 	yuv.use();
@@ -323,7 +327,7 @@ int main(int argc, char* argv[])
 		}
 
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		SDL_GL_SwapWindow(SDL_GL_GetCurrentWindow());
+		eglSwapBuffers(eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW));
 	}
 
 	qframe.stop();

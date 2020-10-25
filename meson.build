@@ -11,6 +11,5 @@ executable('player', [
             'src/player.cpp'
           ],
 	   dependencies : [ dependency('sdl2'),
-			    dependency('glesv2'),
 			    dependency('threads'),
 			    libavdep, libvcdep ])

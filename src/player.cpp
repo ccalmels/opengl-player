@@ -13,6 +13,13 @@
 
 #include <SDL2/SDL.h>
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
+
+#include <va/va_drmcommon.h>
+extern "C" {
+#include <libavutil/hwcontext_vaapi.h>
+}
+#include <unistd.h>
 
 static int width;
 static int height;
@@ -22,11 +29,12 @@ static const std::string vertex = R""(
 
 	layout (location = 0) in vec2 va_position;
 	out vec2 v_uv;
+	uniform vec2 scale = vec2(1.0, 1.0);
 
 	void main() {
 		v_uv = va_position;
 		v_uv.y = -v_uv.y;
-		v_uv = (v_uv + vec2(1.0)) * 0.5;
+		v_uv = scale * (v_uv + vec2(1.0)) * 0.5;
 
 		gl_Position = vec4(va_position, 0.0, 1.0);
 	}
@@ -233,12 +241,81 @@ struct yuv_video : video {
 	}
 };
 
+struct vaapi_video : nv12_video {
+	vaapi_video(int w, int h) : nv12_video(w, h) {}
+
+	void update(const av::frame &f) {
+		static bool init_done;
+		if (!init_done)
+			init_done = initialize_extensions();
+
+		AVVAAPIDeviceContext *vactx = (AVVAAPIDeviceContext*)(((AVHWFramesContext*)f.f->hw_frames_ctx->data)->device_ctx->hwctx);
+		VASurfaceID surface_id = (VASurfaceID)(uintptr_t)f.f->data[3];
+		VADRMPRIMESurfaceDescriptor va_desc;
+		VAStatus ret;
+		uint32_t export_flags = VA_EXPORT_SURFACE_SEPARATE_LAYERS
+			| VA_EXPORT_SURFACE_READ_ONLY;
+
+		assert(vaExportSurfaceHandle(vactx->display, surface_id,
+					     VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
+					     export_flags, &va_desc) == VA_STATUS_SUCCESS);
+		assert(vaSyncSurface(vactx->display, surface_id) == VA_STATUS_SUCCESS);
+
+		get_program().use();
+		get_program().set("scale", ((float)w) / va_desc.width,
+				  ((float)h) / va_desc.height);
+
+		for(int i = 0; i < 2; i++) {
+			EGLint attribs[] = {
+				EGL_LINUX_DRM_FOURCC_EXT, va_desc.layers[i].drm_format,
+				EGL_WIDTH, va_desc.width / (1 + i),
+				EGL_HEIGHT, va_desc.height / (1 + i),
+				EGL_DMA_BUF_PLANE0_FD_EXT, va_desc.objects[ va_desc.layers[i].object_index[0] ].fd,
+				EGL_DMA_BUF_PLANE0_OFFSET_EXT, va_desc.layers[i].offset[0],
+				EGL_DMA_BUF_PLANE0_PITCH_EXT, va_desc.layers[i].pitch[0],
+				EGL_NONE
+			};
+
+			EGLImageKHR image;
+			image = CreateImageKHR(eglGetCurrentDisplay(), EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, nullptr, attribs);
+			assert(image);
+
+			planes[i].active(0);
+			EGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+
+			assert(eglDestroyImageKHR(eglGetCurrentDisplay(), image) == EGL_TRUE);
+		}
+		glBindTexture(GL_TEXTURE_2D, 0);
+		for (int i = 0 ; i < va_desc.num_objects; i++)
+			close(va_desc.objects[i].fd);
+	}
+	static PFNEGLCREATEIMAGEKHRPROC CreateImageKHR;
+	static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
+	static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
+
+	bool initialize_extensions() {
+		CreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+		eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+		EGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+		return true;
+	}
+};
+
+PFNEGLCREATEIMAGEKHRPROC vaapi_video::CreateImageKHR;
+PFNEGLDESTROYIMAGEKHRPROC vaapi_video::eglDestroyImageKHR;
+PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi_video::EGLImageTargetTexture2DOES;
+
 video *create_video_from_frame(const av::frame &f)
 {
 	AVPixelFormat format = (AVPixelFormat)f.f->format;
 
 	switch (format) {
 	case AV_PIX_FMT_VAAPI_VLD:
+		if (egl::has_extension("EGL_KHR_image_base")
+		    && gl::has_extension("GL_OES_EGL_image")) {
+			std::cerr << "Using VAAPI GL Interop" << std::endl;
+			return new vaapi_video(f.f->width, f.f->height);
+		}
 	case AV_PIX_FMT_CUDA:
 	case AV_PIX_FMT_NV12:
 		return new nv12_video(f.f->width, f.f->height);

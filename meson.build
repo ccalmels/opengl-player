@@ -12,4 +12,5 @@ executable('player', [
           ],
 	   dependencies : [ dependency('sdl2'),
 			    dependency('threads'),
+			    dependency('libva'),
 			    libavdep, libvcdep ])

@@ -40,7 +40,7 @@ static const std::string fragment_yuv = R""(
 	in vec2 v_uv;
 	out vec4 color;
 
-	uniform sampler2D y_tex, u_tex, v_tex;
+	uniform sampler2D plane0, plane1, plane2;
 
 	const mat3 yuv2rgb = mat3(1.0, 1.0, 1.0,
 				  0.0, -0.39465, 2.03211,
@@ -49,9 +49,9 @@ static const std::string fragment_yuv = R""(
 	void main() {
 		vec3 yuv, rgb;
 
-		yuv.r = texture(y_tex, v_uv).r;
-		yuv.g = texture(u_tex, v_uv).r - 0.5;
-		yuv.b = texture(v_tex, v_uv).r - 0.5;
+		yuv.r = texture(plane0, v_uv).r;
+		yuv.g = texture(plane1, v_uv).r - 0.5;
+		yuv.b = texture(plane2, v_uv).r - 0.5;
 
 		rgb = yuv2rgb * yuv;
 		color = vec4(rgb, 1.0);
@@ -66,7 +66,7 @@ static const std::string fragment_nv12 = R""(
 	in vec2 v_uv;
 	out vec4 color;
 
-	uniform sampler2D y_tex, uv_tex;
+	uniform sampler2D plane0, plane1;
 
 	const mat3 yuv2rgb = mat3(1.0, 1.0, 1.0,
 				  0.0, -0.39465, 2.03211,
@@ -75,8 +75,8 @@ static const std::string fragment_nv12 = R""(
 	void main() {
 		vec3 yuv, rgb;
 
-		yuv.r = texture(y_tex, v_uv).r;
-		yuv.gb = texture(uv_tex, v_uv).rg - vec2(0.5);
+		yuv.r = texture(plane0, v_uv).r;
+		yuv.gb = texture(plane1, v_uv).rg - vec2(0.5);
 
 		rgb = yuv2rgb * yuv;
 		color = vec4(rgb, 1.0);
@@ -110,14 +110,17 @@ static void init_quad()
 struct queue {
 	queue(size_t n = 3) : is_ok(true), size(n) {}
 
-	void push(av::frame &f) {
+	bool push(av::frame &f) {
 		std::unique_lock<std::mutex> l(m);
 
 		while (filled.size() >= size && is_ok)
 			cv.wait(l);
 
 		filled.push_back(f);
+		l.unlock();
+
 		cv.notify_one();
+		return is_ok;
 	}
 
 	bool get(int64_t pts, av::frame &f) {
@@ -166,38 +169,87 @@ struct queue {
 	std::list<av::frame> filled;
 };
 
-struct video_texture {
-	video_texture(AVPixelFormat format, int width, int height) {
-		switch (format) {
-		case AV_PIX_FMT_NV12:
-			planes.emplace_back(GL_RED, width, height);
-			planes.emplace_back(GL_RG, width * 0.5, height * 0.5);
-			break;
-		case AV_PIX_FMT_YUV420P:
-		case AV_PIX_FMT_YUVJ420P:
-			planes.emplace_back(GL_RED, width, height);
-			planes.emplace_back(GL_RED, width * 0.5, height * 0.5);
-			planes.emplace_back(GL_RED, width * 0.5, height * 0.5);
-			break;
-		default:
-			assert(false);
+struct video {
+	video(int w, int h) : w(w), h(h), planes() {}
+	virtual ~video() {}
+
+	virtual void update(const av::frame &f) = 0;
+	virtual gl::program &get_program() = 0;
+
+	void active(int active) {
+		gl::program &p = get_program();
+
+		p.use();
+
+		for (size_t i = 0; i < planes.size(); i++) {
+			planes[i].active(active + i);
+			p.set(std::string("plane") + std::to_string(i), (int)(active + i));
 		}
 	}
-	~video_texture() {}
 
-	void update(const av::frame &f, int active) {
-		for (size_t i = 0; i < planes.size(); i++)
-			planes[i].update(f.f->data[i]);
-
-		for (size_t i = 0; i < planes.size(); i++)
-			planes[i].active(active + i);
-	}
+	int w, h;
 	std::vector<gl::texture> planes;
+};
 
-	static video_texture *create_from_frame(const av::frame &f) {
-		return new video_texture((AVPixelFormat)f.f->format, f.f->width, f.f->height);
+struct nv12_video : video {
+	nv12_video(int w, int h) : video(w, h) {
+		planes.emplace_back(GL_RED, w, h);
+		planes.emplace_back(GL_RG, w * 0.5, h * 0.5);
+	}
+
+	void update(const av::frame &f) {
+		av::frame sw_frame;
+
+		if (f.is_hardware())
+			sw_frame = f.transfer();
+		else
+			sw_frame = f;
+
+		for (size_t i = 0; i < planes.size(); i++)
+			planes[i].update(sw_frame.f->data[i]);
+	}
+
+	gl::program &get_program() {
+		static gl::program nv12(vertex, fragment_nv12);
+		return nv12;
 	}
 };
+
+struct yuv_video : video {
+	yuv_video(int w, int h) : video(w, h) {
+		planes.emplace_back(GL_RED, w, h);
+		planes.emplace_back(GL_RED, w * 0.5, h * 0.5);
+		planes.emplace_back(GL_RED, w * 0.5, h * 0.5);
+	}
+
+	void update(const av::frame &f) {
+		for (size_t i = 0; i < planes.size(); i++)
+			planes[i].update(f.f->data[i]);
+	}
+
+	gl::program &get_program() {
+		static gl::program yuv(vertex, fragment_yuv);
+		return yuv;
+	}
+};
+
+video *create_video_from_frame(const av::frame &f)
+{
+	AVPixelFormat format = (AVPixelFormat)f.f->format;
+
+	switch (format) {
+	case AV_PIX_FMT_VAAPI_VLD:
+	case AV_PIX_FMT_CUDA:
+	case AV_PIX_FMT_NV12:
+		return new nv12_video(f.f->width, f.f->height);
+	case AV_PIX_FMT_YUV420P:
+	case AV_PIX_FMT_YUVJ420P:
+		return new yuv_video(f.f->width, f.f->height);
+	default:
+		;
+	}
+	return nullptr;
+}
 
 static bool decode_video(av::input &video, queue &qframe,
 			 av::hw_device &hw)
@@ -213,7 +265,7 @@ static bool decode_video(av::input &video, queue &qframe,
 	if (!dec)
 		return false;
 
-	while (video >> p && !!qframe) {
+	while (video >> p) {
 		if (p.stream_index() != id)
 			continue;
 
@@ -221,7 +273,8 @@ static bool decode_video(av::input &video, queue &qframe,
 			return false;
 
 		while (dec >> f)
-			qframe.push(f);
+			if (!qframe.push(f))
+				return false;
 	}
 
 	return true;
@@ -257,9 +310,10 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	int64_t first_pts = qframe.filled.front().f->pts;
-	width = qframe.filled.front().f->width;
-	height = qframe.filled.front().f->height;
+	av::frame &first = qframe.filled.front();
+	int64_t first_pts = first.f->pts;
+	width = first.f->width;
+	height = first.f->height;
 
 	if (!egl::init(argv[0], width, height))
 		return -1;
@@ -268,24 +322,14 @@ int main(int argc, char* argv[])
 	std::cerr << "EGL version   : " << egl::version() << std::endl;
 	std::cerr << "OpenGL version: " << gl::version() << std::endl;
 
-	gl::program yuv(vertex, fragment_yuv);
-	yuv.use();
-	yuv.set("y_tex", 0);
-	yuv.set("u_tex", 1);
-	yuv.set("v_tex", 2);
-
-	gl::program nv12(vertex, fragment_nv12);
-	nv12.use();
-	nv12.set("y_tex", 0);
-	nv12.set("uv_tex", 1);
-
 	init_quad();
 
-	video_texture *vid = nullptr;
+	auto v = create_video_from_frame(qframe.filled.front());
+
 	bool run = true;
 	AVRational time_base = video.time_base(0);
-	Uint32 start_tick = SDL_GetTicks();
 
+	Uint32 start_tick = SDL_GetTicks();
 	while (run && !!qframe) {
 		int64_t pts = av_rescale(SDL_GetTicks() - start_tick, time_base.den,
 					 time_base.num * 1000) + first_pts;
@@ -310,22 +354,10 @@ int main(int argc, char* argv[])
 
 		av::frame f;
 		if (qframe.get(pts, f)) {
-			if (f.is_hardware())
-				f = f.transfer();
-
-			if (!vid) {
-				vid = video_texture::create_from_frame(f);
-
-				if (f.f->format == AV_PIX_FMT_YUV420P ||
-				    f.f->format == AV_PIX_FMT_YUVJ420P )
-					yuv.use();
-				else
-					nv12.use();
-			}
-
-			vid->update(f, 0);
+			v->update(f);
+			v->active(0);
 		}
-
+		glViewport(0, 0, width, height);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		eglSwapBuffers(eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW));
 	}

@@ -245,10 +245,6 @@ struct vaapi_video : nv12_video {
 	vaapi_video(int w, int h) : nv12_video(w, h) {}
 
 	void update(const av::frame &f) {
-		static bool init_done;
-		if (!init_done)
-			init_done = initialize_extensions();
-
 		AVVAAPIDeviceContext *vactx = (AVVAAPIDeviceContext*)(((AVHWFramesContext*)f.f->hw_frames_ctx->data)->device_ctx->hwctx);
 		VASurfaceID surface_id = (VASurfaceID)(uintptr_t)f.f->data[3];
 		VADRMPRIMESurfaceDescriptor va_desc;
@@ -293,7 +289,14 @@ struct vaapi_video : nv12_video {
 	static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
 	static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
 
-	bool initialize_extensions() {
+	static bool initialize_extensions() {
+		if (CreateImageKHR)
+			return true;
+
+		if (!egl::has_extension("EGL_KHR_image_base")
+		    || !gl::has_extension("GL_OES_EGL_image"))
+			return false;
+
 		CreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
 		eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
 		EGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
@@ -311,8 +314,7 @@ video *create_video_from_frame(const av::frame &f)
 
 	switch (format) {
 	case AV_PIX_FMT_VAAPI_VLD:
-		if (egl::has_extension("EGL_KHR_image_base")
-		    && gl::has_extension("GL_OES_EGL_image")) {
+		if (vaapi_video::initialize_extensions()) {
 			std::cerr << "Using VAAPI GL Interop" << std::endl;
 			return new vaapi_video(f.f->width, f.f->height);
 		}

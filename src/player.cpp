@@ -205,7 +205,7 @@ struct nv12_video : video {
 		planes.emplace_back(GL_RG, w * 0.5, h * 0.5);
 	}
 
-	void update(const av::frame &f) {
+	void update(const av::frame &f) override {
 		av::frame sw_frame;
 
 		if (f.is_hardware())
@@ -217,7 +217,7 @@ struct nv12_video : video {
 			planes[i].update(sw_frame.f->data[i]);
 	}
 
-	gl::program &get_program() {
+	gl::program &get_program() override {
 		static gl::program nv12(vertex, fragment_nv12);
 		return nv12;
 	}
@@ -230,12 +230,12 @@ struct yuv_video : video {
 		planes.emplace_back(GL_RED, w * 0.5, h * 0.5);
 	}
 
-	void update(const av::frame &f) {
+	void update(const av::frame &f) override {
 		for (size_t i = 0; i < planes.size(); i++)
 			planes[i].update(f.f->data[i]);
 	}
 
-	gl::program &get_program() {
+	gl::program &get_program() override {
 		static gl::program yuv(vertex, fragment_yuv);
 		return yuv;
 	}
@@ -244,7 +244,7 @@ struct yuv_video : video {
 struct vaapi_video : nv12_video {
 	vaapi_video(int w, int h) : nv12_video(w, h) {}
 
-	void update(const av::frame &f) {
+	void update(const av::frame &f) override {
 		AVVAAPIDeviceContext *vactx = (AVVAAPIDeviceContext*)(((AVHWFramesContext*)f.f->hw_frames_ctx->data)->device_ctx->hwctx);
 		VASurfaceID surface_id = (VASurfaceID)(uintptr_t)f.f->data[3];
 		VADRMPRIMESurfaceDescriptor va_desc;
@@ -389,7 +389,7 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	av::frame &first = qframe.filled.front();
+	const av::frame &first = qframe.filled.front();
 	int64_t first_pts = first.f->pts;
 	width = first.f->width;
 	height = first.f->height;

@@ -16,8 +16,11 @@
 #include <EGL/eglext.h>
 
 #include <va/va_drmcommon.h>
+#include <cuda.h>
+#include <cudaGL.h>
 extern "C" {
 #include <libavutil/hwcontext_vaapi.h>
+#include <libavutil/hwcontext_cuda.h>
 }
 #include <unistd.h>
 
@@ -308,17 +311,66 @@ PFNEGLCREATEIMAGEKHRPROC vaapi_video::CreateImageKHR;
 PFNEGLDESTROYIMAGEKHRPROC vaapi_video::eglDestroyImageKHR;
 PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi_video::EGLImageTargetTexture2DOES;
 
+struct cuda_video : nv12_video {
+	cuda_video(int w, int h) : nv12_video(w, h), initialized(false) {}
+	~cuda_video() {
+		if (initialized)
+			for (int i = 0; i < 2; i++)
+				assert(cuGraphicsUnregisterResource(res[i]) == CUDA_SUCCESS);
+	}
+
+	void update(const av::frame &f) override {
+		AVCUDADeviceContext *cudactx = (AVCUDADeviceContext*)(((AVHWFramesContext*)f.f->hw_frames_ctx->data)->device_ctx->hwctx);
+		CUcontext dummy;
+
+		assert(cuCtxPushCurrent(cudactx->cuda_ctx) == CUDA_SUCCESS);
+
+		if (!initialized) {
+			for (unsigned int i = 0; i < 2; i++) {
+				assert(cuGraphicsGLRegisterImage(&res[i], planes[i].id , GL_TEXTURE_2D, 0) == CUDA_SUCCESS);
+				assert(cuGraphicsMapResources(1, &res[i], 0) == CUDA_SUCCESS);
+				assert(cuGraphicsSubResourceGetMappedArray(&array[i], res[i], 0, 0) == CUDA_SUCCESS);
+				assert(cuGraphicsUnmapResources(1, &res[i], 0) == CUDA_SUCCESS);
+			}
+			initialized = true;
+		}
+
+		for (unsigned int i = 0; i < 2; i++) {
+			CUDA_MEMCPY2D cpy = {
+				.srcY          = 0,
+				.srcMemoryType = CU_MEMORYTYPE_DEVICE,
+				.srcDevice     = (CUdeviceptr)f.f->data[i],
+				.srcPitch      = (unsigned int)f.f->linesize[i],
+				.dstMemoryType = CU_MEMORYTYPE_ARRAY,
+				.dstArray      = array[i],
+				.WidthInBytes  = (unsigned int)f.f->width,
+				.Height        = (unsigned int)(f.f->height >> i),
+			};
+			assert(cuMemcpy2DAsync(&cpy, 0) == CUDA_SUCCESS);
+		}
+
+		assert(cuStreamSynchronize(cudactx->stream) == CUDA_SUCCESS);
+		assert(cuCtxPopCurrent(&dummy) == CUDA_SUCCESS);
+	}
+
+	bool initialized;
+	CUarray array[2];
+	CUgraphicsResource res[2];
+};
+
 video *create_video_from_frame(const av::frame &f)
 {
 	AVPixelFormat format = (AVPixelFormat)f.f->format;
 
 	switch (format) {
+	case AV_PIX_FMT_CUDA:
+		std::cerr << "Using CUDA GL Interop" << std::endl;
+		return new cuda_video(f.f->width, f.f->height);
 	case AV_PIX_FMT_VAAPI_VLD:
 		if (vaapi_video::initialize_extensions()) {
 			std::cerr << "Using VAAPI GL Interop" << std::endl;
 			return new vaapi_video(f.f->width, f.f->height);
 		}
-	case AV_PIX_FMT_CUDA:
 	case AV_PIX_FMT_NV12:
 		return new nv12_video(f.f->width, f.f->height);
 	case AV_PIX_FMT_YUV420P:

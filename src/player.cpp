@@ -15,10 +15,12 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+#if HAVE_VA
 #include <va/va_drmcommon.h>
 extern "C" {
 #include <libavutil/hwcontext_vaapi.h>
 }
+#endif
 
 #if HAVE_CUDA
 #include <cuda.h>
@@ -250,6 +252,7 @@ struct yuv_video : video {
 	}
 };
 
+#if HAVE_VA
 struct vaapi_video : nv12_video {
 	vaapi_video(int w, int h) : nv12_video(w, h) {}
 
@@ -316,6 +319,7 @@ struct vaapi_video : nv12_video {
 PFNEGLCREATEIMAGEKHRPROC vaapi_video::CreateImageKHR;
 PFNEGLDESTROYIMAGEKHRPROC vaapi_video::eglDestroyImageKHR;
 PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi_video::EGLImageTargetTexture2DOES;
+#endif
 
 #if HAVE_CUDA
 struct cuda_video : nv12_video {
@@ -379,10 +383,12 @@ video *create_video_from_frame(const av::frame &f)
 		return new nv12_video(f.f->width, f.f->height);
 #endif
 	case AV_PIX_FMT_VAAPI_VLD:
+#if HAVE_VA
 		if (vaapi_video::initialize_extensions()) {
 			std::cerr << "Using VAAPI GL Interop" << std::endl;
 			return new vaapi_video(f.f->width, f.f->height);
 		}
+#endif
 	case AV_PIX_FMT_NV12:
 		return new nv12_video(f.f->width, f.f->height);
 	case AV_PIX_FMT_YUV420P:

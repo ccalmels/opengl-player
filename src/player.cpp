@@ -16,12 +16,18 @@
 #include <EGL/eglext.h>
 
 #include <va/va_drmcommon.h>
+extern "C" {
+#include <libavutil/hwcontext_vaapi.h>
+}
+
+#if HAVE_CUDA
 #include <cuda.h>
 #include <cudaGL.h>
 extern "C" {
-#include <libavutil/hwcontext_vaapi.h>
 #include <libavutil/hwcontext_cuda.h>
 }
+#endif
+
 #include <unistd.h>
 
 static int width;
@@ -311,6 +317,7 @@ PFNEGLCREATEIMAGEKHRPROC vaapi_video::CreateImageKHR;
 PFNEGLDESTROYIMAGEKHRPROC vaapi_video::eglDestroyImageKHR;
 PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi_video::EGLImageTargetTexture2DOES;
 
+#if HAVE_CUDA
 struct cuda_video : nv12_video {
 	cuda_video(int w, int h) : nv12_video(w, h), initialized(false) {}
 	~cuda_video() {
@@ -357,6 +364,7 @@ struct cuda_video : nv12_video {
 	CUarray array[2];
 	CUgraphicsResource res[2];
 };
+#endif
 
 video *create_video_from_frame(const av::frame &f)
 {
@@ -364,8 +372,12 @@ video *create_video_from_frame(const av::frame &f)
 
 	switch (format) {
 	case AV_PIX_FMT_CUDA:
+#if HAVE_CUDA
 		std::cerr << "Using CUDA GL Interop" << std::endl;
 		return new cuda_video(f.f->width, f.f->height);
+#else
+		return new nv12_video(f.f->width, f.f->height);
+#endif
 	case AV_PIX_FMT_VAAPI_VLD:
 		if (vaapi_video::initialize_extensions()) {
 			std::cerr << "Using VAAPI GL Interop" << std::endl;

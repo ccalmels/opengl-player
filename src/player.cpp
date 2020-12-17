@@ -260,7 +260,6 @@ struct vaapi_video : nv12_video {
 		AVVAAPIDeviceContext *vactx = (AVVAAPIDeviceContext*)(((AVHWFramesContext*)f.f->hw_frames_ctx->data)->device_ctx->hwctx);
 		VASurfaceID surface_id = (VASurfaceID)(uintptr_t)f.f->data[3];
 		VADRMPRIMESurfaceDescriptor va_desc;
-		VAStatus ret;
 		uint32_t export_flags = VA_EXPORT_SURFACE_SEPARATE_LAYERS
 			| VA_EXPORT_SURFACE_READ_ONLY;
 
@@ -275,12 +274,12 @@ struct vaapi_video : nv12_video {
 
 		for(int i = 0; i < 2; i++) {
 			EGLint attribs[] = {
-				EGL_LINUX_DRM_FOURCC_EXT, va_desc.layers[i].drm_format,
-				EGL_WIDTH, va_desc.width / (1 + i),
-				EGL_HEIGHT, va_desc.height / (1 + i),
-				EGL_DMA_BUF_PLANE0_FD_EXT, va_desc.objects[ va_desc.layers[i].object_index[0] ].fd,
-				EGL_DMA_BUF_PLANE0_OFFSET_EXT, va_desc.layers[i].offset[0],
-				EGL_DMA_BUF_PLANE0_PITCH_EXT, va_desc.layers[i].pitch[0],
+				EGL_LINUX_DRM_FOURCC_EXT, (EGLint)va_desc.layers[i].drm_format,
+				EGL_WIDTH, (EGLint)(va_desc.width / (1 + i)),
+				EGL_HEIGHT, (EGLint)(va_desc.height / (1 + i)),
+				EGL_DMA_BUF_PLANE0_FD_EXT, (EGLint)va_desc.objects[ va_desc.layers[i].object_index[0] ].fd,
+				EGL_DMA_BUF_PLANE0_OFFSET_EXT, (EGLint)va_desc.layers[i].offset[0],
+				EGL_DMA_BUF_PLANE0_PITCH_EXT, (EGLint)va_desc.layers[i].pitch[0],
 				EGL_NONE
 			};
 
@@ -294,7 +293,7 @@ struct vaapi_video : nv12_video {
 			assert(eglDestroyImageKHR(eglGetCurrentDisplay(), image) == EGL_TRUE);
 		}
 		glBindTexture(GL_TEXTURE_2D, 0);
-		for (int i = 0 ; i < va_desc.num_objects; i++)
+		for (unsigned int i = 0 ; i < va_desc.num_objects; i++)
 			close(va_desc.objects[i].fd);
 	}
 	static PFNEGLCREATEIMAGEKHRPROC CreateImageKHR;

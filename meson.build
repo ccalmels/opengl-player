@@ -5,9 +5,9 @@ libvc = subproject('libvc')
 
 args = []
 dependencies = [ dependency('sdl2'),
-		 dependency('threads'),
-		 libav.get_variable('avcpp_dep'),
-		 libvc.get_variable('libvc_dep') ]
+                 dependency('threads'),
+                 libav.get_variable('avcpp_dep'),
+                 libvc.get_variable('libvc_dep') ]
 
 cudalib = meson.get_compiler('cpp').find_library('libcuda', required : false)
 if cudalib.found()
@@ -23,4 +23,4 @@ endif
 
 # Player
 executable('player', 'src/player.cpp',
-	   dependencies : dependencies, cpp_args : args)
+           dependencies : dependencies, cpp_args : args)

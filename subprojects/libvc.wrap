@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://github.com/ccalmels/libvc
+revision = master
+depth = 1

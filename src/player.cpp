@@ -381,7 +381,7 @@ video *create_video_from_frame(const av::frame &f)
 #else
 		return new nv12_video(f.f->width, f.f->height);
 #endif
-	case AV_PIX_FMT_VAAPI_VLD:
+	case AV_PIX_FMT_VAAPI:
 #if HAVE_VA
 		if (vaapi_video::initialize_extensions()) {
 			std::cerr << "Using VAAPI GL Interop" << std::endl;

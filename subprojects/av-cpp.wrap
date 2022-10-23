@@ -1,0 +1,4 @@
+[wrap-git]
+url = https://github.com/ccalmels/av-cpp
+revision = master
+depth = 1

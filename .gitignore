@@ -1,1 +1,3 @@
 build/
+subprojects/av-cpp/
+subprojects/libvc/

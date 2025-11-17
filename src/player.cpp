@@ -284,6 +284,7 @@ struct vaapi_video : nv12_video {
                           ((float)h) / va_desc.height);
 
         for (int i = 0; i < 2; i++) {
+            uint32_t object_index = va_desc.layers[i].object_index[0];
             EGLint attribs[] = {
                 EGL_LINUX_DRM_FOURCC_EXT,
                 (EGLint)va_desc.layers[i].drm_format,
@@ -292,11 +293,17 @@ struct vaapi_video : nv12_video {
                 EGL_HEIGHT,
                 (EGLint)(va_desc.height / (1 + i)),
                 EGL_DMA_BUF_PLANE0_FD_EXT,
-                (EGLint)va_desc.objects[va_desc.layers[i].object_index[0]].fd,
+                (EGLint)va_desc.objects[object_index].fd,
                 EGL_DMA_BUF_PLANE0_OFFSET_EXT,
                 (EGLint)va_desc.layers[i].offset[0],
                 EGL_DMA_BUF_PLANE0_PITCH_EXT,
                 (EGLint)va_desc.layers[i].pitch[0],
+                EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
+                (EGLint)(va_desc.objects[object_index].drm_format_modifier &
+                         0xffffffff),
+                EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
+                (EGLint)(va_desc.objects[object_index].drm_format_modifier >>
+                         32),
                 EGL_NONE};
 
             EGLImageKHR image;

@@ -200,13 +200,18 @@ struct video {
 
     void active(int active)
     {
+        static const std::string names[] = {
+            "plane0",
+            "plane1",
+            "plane2",
+        };
         gl::program &p = get_program();
 
         p.use();
 
         for (size_t i = 0; i < planes.size(); i++) {
             planes[i].active(active + i);
-            p.set(std::string("plane") + std::to_string(i), (int)(active + i));
+            p.set(names[i], (int)(active + i));
         }
     }
 

@@ -11,12 +11,6 @@ dependencies = [
   libvc.get_variable('libvc_dep'),
 ]
 
-cudalib = meson.get_compiler('cpp').find_library('libcuda', required : false)
-if cudalib.found()
-  dependencies += declare_dependency(dependencies : cudalib)
-  args += '-DHAVE_CUDA'
-endif
-
 vadep = dependency('libva', required : false)
 if vadep.found()
   dependencies += vadep

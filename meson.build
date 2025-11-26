@@ -1,4 +1,4 @@
-project('player', 'cpp', default_options: [ 'cpp_std=c++17', 'werror=true' ])
+project('player', 'cpp', meson_version: '>=1.1', default_options: [ 'cpp_std=c++17', 'werror=true' ])
 
 libav = subproject('av-cpp')
 libvc = subproject('libvc')
@@ -12,7 +12,7 @@ dependencies = [
   libvc.get_variable('libvc_dep'),
 ]
 
-vadep = dependency('libva', required : false)
+vadep = dependency('libva', required : get_option('vaapi'))
 if vadep.found()
   dependencies += vadep
   args += '-DHAVE_VA'

@@ -23,10 +23,15 @@ extern "C" {
 }
 #endif
 
+#include <getopt.h>
 #include <unistd.h>
 
 static int width;
 static int height;
+#if HAVE_VA
+static bool hwdec;
+static bool interop;
+#endif
 
 static const std::string vertex = R""(
 #version 450
@@ -385,7 +390,7 @@ video *create_video_from_frame(const av::frame &f)
     switch (format) {
     case AV_PIX_FMT_VAAPI:
 #if HAVE_VA
-        if (vaapi::initialize_extensions()) {
+        if (interop && vaapi::initialize_extensions()) {
             fmt::print(stderr, "Using VAAPI GL Interop\n");
             return new vaapi(f);
         }
@@ -401,7 +406,7 @@ video *create_video_from_frame(const av::frame &f)
     return nullptr;
 }
 
-static bool decode_video(av::input &video, queue &qframe, av::hw_device &hw)
+static bool decode_video(av::input &video, queue &qframe)
 {
     av::packet p;
     av::frame f;
@@ -410,7 +415,17 @@ static bool decode_video(av::input &video, queue &qframe, av::hw_device &hw)
 
     id = video.get_video_index(0);
 
-    dec = video.get(hw, id);
+#if HAVE_VA
+    if (hwdec) {
+        av::hw_device hw("vaapi");
+        if (!hw)
+            fmt::print(stderr, "no vaapi HW decoder available\n");
+
+        dec = video.get(hw, id);
+    } else
+#endif
+        dec = video.get(id);
+
     if (!dec)
         return false;
 
@@ -431,11 +446,7 @@ static bool decode_video(av::input &video, queue &qframe, av::hw_device &hw)
 
 static void read_video(av::input &video, queue &qframe)
 {
-    av::hw_device hw("vaapi");
-    if (!hw)
-        fmt::print(stderr, "no vaapi HW decoder available\n");
-
-    decode_video(video, qframe, hw);
+    decode_video(video, qframe);
 
     qframe.stop();
 }
@@ -444,9 +455,42 @@ int main(int argc, char *argv[])
 {
     std::string videoname = "pipe:0";
     queue qframe;
+    const static struct option longopts[] = {
+        {"help", 0, 0, 'h'},
+#if HAVE_VA
+        {"hwdec", 0, 0, 'd'},
+        {"interop", 0, 0, 'i'},
+#endif
+        {0, 0, 0, 0},
+    };
+    int index = 0;
+    int arg = 0;
 
-    if (argc > 1)
-        videoname = argv[1];
+    while (1) {
+        arg = getopt_long(argc, argv, "h", longopts, &index);
+        if (arg == -1)
+            break;
+
+        switch (arg) {
+        case '?':
+        case 'h':
+            fmt::print("Usage: {:s} [-h|--help] [--hwdec] [--interop] [FILE]\n",
+                       argv[0]);
+            exit(0);
+#if HAVE_VA
+        case 'd':
+            hwdec = true;
+            break;
+        case 'i':
+            interop = true;
+            break;
+#endif
+        }
+    }
+
+    if (index + 1 < argc) {
+        videoname = argv[index + 1];
+    }
 
     av::input video;
     if (!video.open(videoname))

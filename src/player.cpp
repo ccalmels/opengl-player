@@ -192,10 +192,22 @@ struct queue {
 };
 
 struct video {
-    video(int w, int h) : w(w), h(h), planes() {}
+    video() : aspect(1.0), planes() {}
     virtual ~video() {}
 
-    virtual void update(const av::frame &f) = 0;
+    virtual void update(const av::frame &f)
+    {
+        av::frame sw;
+
+        if (f.is_hardware()) {
+            sw = f.transfer();
+        } else {
+            sw = f;
+        }
+
+        for (size_t i = 0; i < planes.size(); i++)
+            planes[i].update(sw.f->data[i]);
+    }
     virtual gl::program &get_program() = 0;
 
     void active(int active)
@@ -208,6 +220,7 @@ struct video {
         gl::program &p = get_program();
 
         p.use();
+        p.set("scale", aspect, 1.0f);
 
         for (size_t i = 0; i < planes.size(); i++) {
             planes[i].active(active + i);
@@ -215,49 +228,18 @@ struct video {
         }
     }
 
-    int w, h;
+    float aspect;
     std::vector<gl::texture> planes;
 };
 
-struct nv12_video : video {
-    nv12_video(int w, int h) : video(w, h)
+struct yuv : video {
+    yuv(const av::frame &f) : video()
     {
-        planes.emplace_back(GL_RED, w, h);
-        planes.emplace_back(GL_RG, w * 0.5, h * 0.5);
-    }
+        planes.emplace_back(GL_RED, f.f->linesize[0], f.f->height);
+        planes.emplace_back(GL_RED, (float)f.f->linesize[1], f.f->height * 0.5);
+        planes.emplace_back(GL_RED, (float)f.f->linesize[2], f.f->height * 0.5);
 
-    void update(const av::frame &f) override
-    {
-        av::frame sw_frame;
-
-        if (f.is_hardware())
-            sw_frame = f.transfer();
-        else
-            sw_frame = f;
-
-        for (size_t i = 0; i < planes.size(); i++)
-            planes[i].update(sw_frame.f->data[i]);
-    }
-
-    gl::program &get_program() override
-    {
-        static gl::program nv12(vertex, fragment_nv12);
-        return nv12;
-    }
-};
-
-struct yuv_video : video {
-    yuv_video(int w, int h) : video(w, h)
-    {
-        planes.emplace_back(GL_RED, w, h);
-        planes.emplace_back(GL_RED, w * 0.5, h * 0.5);
-        planes.emplace_back(GL_RED, w * 0.5, h * 0.5);
-    }
-
-    void update(const av::frame &f) override
-    {
-        for (size_t i = 0; i < planes.size(); i++)
-            planes[i].update(f.f->data[i]);
+        aspect = (float)(f.f->width) / f.f->linesize[0];
     }
 
     gl::program &get_program() override
@@ -267,9 +249,51 @@ struct yuv_video : video {
     }
 };
 
+struct nv12 : video {
+    nv12(const av::frame &f) : video()
+    {
+        planes.emplace_back(GL_RED, f.f->linesize[0], f.f->height);
+        planes.emplace_back(GL_RG, f.f->linesize[1] * 0.5, f.f->height * 0.5);
+
+        aspect = (float)(f.f->width) / f.f->linesize[0];
+    }
+
+    gl::program &get_program() override
+    {
+        static gl::program nv12(vertex, fragment_nv12);
+        return nv12;
+    }
+
+    float aspect;
+};
+
 #if HAVE_VA
-struct vaapi_video : nv12_video {
-    vaapi_video(int w, int h) : nv12_video(w, h) {}
+struct vaapi : video {
+    vaapi(const av::frame &f) : video()
+    {
+        AVVAAPIDeviceContext *vactx =
+            (AVVAAPIDeviceContext *)(((AVHWFramesContext *)
+                                          f.f->hw_frames_ctx->data)
+                                         ->device_ctx->hwctx);
+        VASurfaceID surface_id = (VASurfaceID)(uintptr_t)f.f->data[3];
+        VADRMPRIMESurfaceDescriptor va_desc;
+        uint32_t export_flags =
+            VA_EXPORT_SURFACE_SEPARATE_LAYERS | VA_EXPORT_SURFACE_READ_ONLY;
+
+        assert(vaExportSurfaceHandle(vactx->display, surface_id,
+                                     VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2,
+                                     export_flags,
+                                     &va_desc) == VA_STATUS_SUCCESS);
+
+        // NV12 only for the moment
+        planes.emplace_back(GL_RED, va_desc.width, va_desc.height);
+        planes.emplace_back(GL_RG, va_desc.width / 2, va_desc.height / 2);
+
+        // aspect is f.f->witdth / va_desc.width
+
+        for (unsigned int i = 0; i < va_desc.num_objects; i++)
+            close(va_desc.objects[i].fd);
+    }
 
     void update(const av::frame &f) override
     {
@@ -287,10 +311,6 @@ struct vaapi_video : nv12_video {
                                      export_flags,
                                      &va_desc) == VA_STATUS_SUCCESS);
         assert(vaSyncSurface(vactx->display, surface_id) == VA_STATUS_SUCCESS);
-
-        get_program().use();
-        get_program().set("scale", ((float)w) / va_desc.width,
-                          ((float)h) / va_desc.height);
 
         for (int i = 0; i < 2; i++) {
             uint32_t object_index = va_desc.layers[i].object_index[0];
@@ -334,6 +354,12 @@ struct vaapi_video : nv12_video {
     static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
     static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
 
+    gl::program &get_program() override
+    {
+        static gl::program nv12(vertex, fragment_nv12);
+        return nv12;
+    }
+
     static bool initialize_extensions()
     {
         if (CreateImageKHR)
@@ -354,9 +380,9 @@ struct vaapi_video : nv12_video {
     }
 };
 
-PFNEGLCREATEIMAGEKHRPROC vaapi_video::CreateImageKHR;
-PFNEGLDESTROYIMAGEKHRPROC vaapi_video::eglDestroyImageKHR;
-PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi_video::EGLImageTargetTexture2DOES;
+PFNEGLCREATEIMAGEKHRPROC vaapi::CreateImageKHR;
+PFNEGLDESTROYIMAGEKHRPROC vaapi::eglDestroyImageKHR;
+PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi::EGLImageTargetTexture2DOES;
 #endif
 
 #if HAVE_CUDA
@@ -426,20 +452,23 @@ video *create_video_from_frame(const av::frame &f)
         std::cerr << "Using CUDA GL Interop" << std::endl;
         return new cuda_video(f.f->width, f.f->height);
 #else
-        return new nv12_video(f.f->width, f.f->height);
+        return new nv12(f);
 #endif
     case AV_PIX_FMT_VAAPI:
 #if HAVE_VA
-        if (vaapi_video::initialize_extensions()) {
+        if (vaapi::initialize_extensions()) {
             std::cerr << "Using VAAPI GL Interop" << std::endl;
-            return new vaapi_video(f.f->width, f.f->height);
+            return new vaapi(f);
         }
 #endif
+        return create_video_from_frame(f.transfer());
     case AV_PIX_FMT_NV12:
-        return new nv12_video(f.f->width, f.f->height);
+        std::cerr << "NV12 format" << std::endl;
+        return new nv12(f);
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P:
-        return new yuv_video(f.f->width, f.f->height);
+        std::cerr << "YUV format" << std::endl;
+        return new yuv(f);
     default:;
     }
     return nullptr;
@@ -518,7 +547,7 @@ int main(int argc, char *argv[])
 
     init_quad();
 
-    auto v = create_video_from_frame(qframe.filled.front());
+    auto v = create_video_from_frame(first);
 
     bool run = true;
     AVRational time_base = video.time_base(0);

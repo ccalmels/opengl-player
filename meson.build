@@ -7,6 +7,7 @@ args = []
 dependencies = [
   dependency('sdl2'),
   dependency('threads'),
+  dependency('fmt'),
   libav.get_variable('avcpp_dep'),
   libvc.get_variable('libvc_dep'),
 ]

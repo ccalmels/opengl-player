@@ -1,11 +1,12 @@
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
-#include <iostream>
 #include <list>
 #include <mutex>
 #include <string>
 #include <thread>
+
+#include <fmt/core.h>
 
 #include "egl.hpp"
 #include "ffmpeg.hpp"
@@ -151,7 +152,7 @@ struct queue {
         }
 
         if (ret && count)
-            std::cerr << "drop: " << count << " frames" << std::endl;
+            fmt::print(stderr, "drop {:>3d} frames\n", count);
 
         if (filled.size() < size)
             cv.notify_one();
@@ -385,17 +386,15 @@ video *create_video_from_frame(const av::frame &f)
     case AV_PIX_FMT_VAAPI:
 #if HAVE_VA
         if (vaapi::initialize_extensions()) {
-            std::cerr << "Using VAAPI GL Interop" << std::endl;
+            fmt::print(stderr, "Using VAAPI GL Interop\n");
             return new vaapi(f);
         }
 #endif
         return create_video_from_frame(f.transfer());
     case AV_PIX_FMT_NV12:
-        std::cerr << "NV12 format" << std::endl;
         return new nv12(f);
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P:
-        std::cerr << "YUV format" << std::endl;
         return new yuv(f);
     default:;
     }
@@ -469,9 +468,9 @@ int main(int argc, char *argv[])
     if (!egl::init(argv[0], width, height))
         return -1;
 
-    std::cerr << "SDL with egl  : " << width << "x" << height << std::endl;
-    std::cerr << "EGL version   : " << egl::version() << std::endl;
-    std::cerr << "OpenGL version: " << gl::version() << std::endl;
+    fmt::print(stderr, "SDL with egl  : {:d}x{:d}\n", width, height);
+    fmt::print(stderr, "EGL version   : {:s}\n", egl::version());
+    fmt::print(stderr, "OpenGL version: {:s}\n", gl::version());
 
     init_quad();
 

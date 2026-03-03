@@ -59,8 +59,8 @@ static const std::string fragment_yuv = R""(
 
 	uniform sampler2D plane0, plane1, plane2;
 
-        // https://fourcc.org/fccyvrgb.php
-        const vec3 yuv_offset = vec3(0.0625, 0.5, 0.5);
+	// https://fourcc.org/fccyvrgb.php
+	const vec3 yuv_offset = vec3(0.0625, 0.5, 0.5);
 	const mat3 yuv2rgb = mat3(1.164, 1.164, 1.164,
                                   0.0, -0.391, 2.018,
                                   1.596, -0.813, 0.0);
@@ -87,8 +87,8 @@ static const std::string fragment_nv12 = R""(
 
 	uniform sampler2D plane0, plane1;
 
-        // https://fourcc.org/fccyvrgb.php
-        const vec3 yuv_offset = vec3(0.0625, 0.5, 0.5);
+	// https://fourcc.org/fccyvrgb.php
+	const vec3 yuv_offset = vec3(0.0625, 0.5, 0.5);
 	const mat3 yuv2rgb = mat3(1.164, 1.164, 1.164,
                                   0.0, -0.391, 2.018,
                                   1.596, -0.813, 0.0);

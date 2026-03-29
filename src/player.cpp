@@ -488,8 +488,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (index + 1 < argc) {
-        videoname = argv[index + 1];
+    if (optind < argc) {
+        videoname = argv[optind];
     }
 
     av::input video;

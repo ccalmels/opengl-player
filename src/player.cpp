@@ -483,6 +483,7 @@ int main(int argc, char *argv[])
             break;
         case 'i':
             interop = true;
+            hwdec = true;
             break;
 #endif
         }

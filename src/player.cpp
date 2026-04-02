@@ -231,7 +231,16 @@ struct video {
 };
 
 struct yuv : video {
-    yuv(const av::frame &f) : video()
+
+    gl::program &get_program() override
+    {
+        static gl::program yuv(vertex, fragment_yuv);
+        return yuv;
+    }
+};
+
+struct yuv420 : yuv {
+    yuv420(const av::frame &f) : yuv()
     {
         planes.emplace_back(GL_RED, f.f->linesize[0], f.f->height);
         planes.emplace_back(GL_RED, (float)f.f->linesize[1], f.f->height * 0.5);
@@ -239,11 +248,16 @@ struct yuv : video {
 
         aspect = (float)(f.f->width) / f.f->linesize[0];
     }
+};
 
-    gl::program &get_program() override
+struct yuv422 : yuv {
+    yuv422(const av::frame &f) : yuv()
     {
-        static gl::program yuv(vertex, fragment_yuv);
-        return yuv;
+        planes.emplace_back(GL_RED, f.f->linesize[0], f.f->height);
+        planes.emplace_back(GL_RED, (float)f.f->linesize[1], f.f->height);
+        planes.emplace_back(GL_RED, (float)f.f->linesize[2], f.f->height);
+
+        aspect = (float)(f.f->width) / f.f->linesize[0];
     }
 };
 
@@ -400,7 +414,10 @@ video *create_video_from_frame(const av::frame &f)
         return new nv12(f);
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P:
-        return new yuv(f);
+        return new yuv420(f);
+    case AV_PIX_FMT_YUV422P:
+    case AV_PIX_FMT_YUVJ422P:
+        return new yuv422(f);
     default:;
     }
     return nullptr;

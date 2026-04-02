@@ -297,9 +297,33 @@ struct vaapi : video {
                                      export_flags,
                                      &va_desc) == VA_STATUS_SUCCESS);
 
-        // NV12 only for the moment
-        planes.emplace_back(GL_RED, va_desc.width, va_desc.height);
-        planes.emplace_back(GL_RG, va_desc.width / 2, va_desc.height / 2);
+        switch (va_desc.fourcc) {
+        case VA_FOURCC_422H:
+        case VA_FOURCC_422V:
+            assert(va_desc.num_layers == 3);
+            planes.emplace_back(GL_RED, va_desc.width, va_desc.height);
+            planes.emplace_back(GL_RED, va_desc.width * 0.5, va_desc.height);
+            planes.emplace_back(GL_RED, va_desc.width * 0.5, va_desc.height);
+            break;
+        case VA_FOURCC_NV12:
+            assert(va_desc.num_layers == 2);
+            planes.emplace_back(GL_RED, va_desc.width, va_desc.height);
+            planes.emplace_back(GL_RG, va_desc.width * 0.5,
+                                va_desc.height * 0.5);
+            break;
+        default:
+            union {
+                uint32_t fourcc;
+                char str[4];
+            } fourcc_u = {
+                .fourcc = va_desc.fourcc,
+            };
+            fmt::print(stderr, "fourcc not handled: {:#010x} ({})\n",
+                       fourcc_u.fourcc,
+                       std::string_view(fourcc_u.str, sizeof(fourcc_u.str)));
+
+            assert(false);
+        }
 
         // aspect is f.f->witdth / va_desc.width
 
@@ -324,15 +348,15 @@ struct vaapi : video {
                                      &va_desc) == VA_STATUS_SUCCESS);
         assert(vaSyncSurface(vactx->display, surface_id) == VA_STATUS_SUCCESS);
 
-        for (int i = 0; i < 2; i++) {
+        for (uint32_t i = 0; i < va_desc.num_layers; i++) {
             uint32_t object_index = va_desc.layers[i].object_index[0];
             EGLint attribs[] = {
                 EGL_LINUX_DRM_FOURCC_EXT,
                 (EGLint)va_desc.layers[i].drm_format,
                 EGL_WIDTH,
-                (EGLint)(va_desc.width / (1 + i)),
+                (EGLint)planes[i].w,
                 EGL_HEIGHT,
-                (EGLint)(va_desc.height / (1 + i)),
+                (EGLint)planes[i].h,
                 EGL_DMA_BUF_PLANE0_FD_EXT,
                 (EGLint)va_desc.objects[object_index].fd,
                 EGL_DMA_BUF_PLANE0_OFFSET_EXT,
@@ -368,8 +392,13 @@ struct vaapi : video {
 
     gl::program &get_program() override
     {
-        static gl::program nv12(vertex, fragment_nv12);
-        return nv12;
+        if (planes.size() == 2) {
+            static gl::program nv12(vertex, fragment_nv12);
+            return nv12;
+        } else {
+            static gl::program yuv(vertex, fragment_yuv);
+            return yuv;
+        }
     }
 
     static bool initialize_extensions()

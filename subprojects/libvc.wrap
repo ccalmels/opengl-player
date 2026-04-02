@@ -2,3 +2,6 @@
 url = https://github.com/ccalmels/libvc
 revision = master
 depth = 1
+
+[provide]
+vc = libvc_dep

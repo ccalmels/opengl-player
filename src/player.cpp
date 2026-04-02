@@ -334,8 +334,8 @@ struct vaapi : video {
                 EGL_NONE};
 
             EGLImageKHR image;
-            image = CreateImageKHR(eglGetCurrentDisplay(), EGL_NO_CONTEXT,
-                                   EGL_LINUX_DMA_BUF_EXT, nullptr, attribs);
+            image = eglCreateImageKHR(eglGetCurrentDisplay(), EGL_NO_CONTEXT,
+                                      EGL_LINUX_DMA_BUF_EXT, nullptr, attribs);
             assert(image);
 
             planes[i].active(0);
@@ -348,7 +348,7 @@ struct vaapi : video {
         for (unsigned int i = 0; i < va_desc.num_objects; i++)
             close(va_desc.objects[i].fd);
     }
-    static PFNEGLCREATEIMAGEKHRPROC CreateImageKHR;
+    static PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
     static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
 
@@ -360,14 +360,14 @@ struct vaapi : video {
 
     static bool initialize_extensions()
     {
-        if (CreateImageKHR)
+        if (eglCreateImageKHR)
             return true;
 
         if (!egl::has_extension("EGL_KHR_image_base") ||
             !gl::has_extension("GL_OES_EGL_image"))
             return false;
 
-        CreateImageKHR =
+        eglCreateImageKHR =
             (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
         eglDestroyImageKHR =
             (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
@@ -378,7 +378,7 @@ struct vaapi : video {
     }
 };
 
-PFNEGLCREATEIMAGEKHRPROC vaapi::CreateImageKHR;
+PFNEGLCREATEIMAGEKHRPROC vaapi::eglCreateImageKHR;
 PFNEGLDESTROYIMAGEKHRPROC vaapi::eglDestroyImageKHR;
 PFNGLEGLIMAGETARGETTEXTURE2DOESPROC vaapi::EGLImageTargetTexture2DOES;
 #endif
